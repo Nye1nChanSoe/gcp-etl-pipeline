@@ -101,7 +101,3 @@ def extract_data(request):
     }
     logger.info(f"Extraction complete: {result}")
     return (json.dumps(result), 200, {"Content-Type": "application/json"})
-
-
-if __name__ == "__main__":
-    extract_data()

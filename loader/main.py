@@ -86,7 +86,3 @@ def load_to_bq(cloud_event):
         f"Successfully loaded {len(records)} rows into {table_ref} "
         f"from gs://{bucket_name}/{file_name}"
     )
-
-
-if __name__ == "__main__":
-    load_to_bq()

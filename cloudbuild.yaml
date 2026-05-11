@@ -1,6 +1,3 @@
-# cloudbuild.yaml
-# Deploys both Cloud Functions Gen 2 via Cloud Build.
-
 substitutions:
   _GCS_BUCKET: "harbour-etl-prod-raw-data-bucket-sg"
   _BQ_DATASET: "harbour_prod_staging"
@@ -8,53 +5,105 @@ substitutions:
   _REGION: "asia-southeast1"
   _SA: "etl-pipeline-deployer-sa@project-7abcab2d-24a7-4f5d-80a.iam.gserviceaccount.com"
   _PROJECT_ID: "project-7abcab2d-24a7-4f5d-80a"
+  _AR_REPO: "etl-images"
 
 steps:
-  # Deploy Extractor: HTTP-triggered Cloud Function Gen 2
+  # Build extractor image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-extractor"
+    args:
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/forex-extractor:latest"
+      - "./extractor"
+
+  # Push extractor image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-extractor"
+    waitFor: ["build-extractor"]
+    args:
+      - "push"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/forex-extractor:latest"
+
+  # Deploy extractor as Cloud Run service
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "deploy-extractor"
+    waitFor: ["push-extractor"]
     args:
-      - gcloud
-      - functions
-      - deploy
-      - forex-extractor-fn
-      - "--gen2"
-      - "--runtime=python311"
-      - "--region=$_REGION"
-      - "--source=extractor/"
-      - "--entry-point=extract_data"
-      - "--trigger-http"
-      - "--service-account=$_SA"
-      - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BASE_CURRENCY=USD"
+      - "gcloud"
+      - "run"
+      - "deploy"
+      - "forex-extractor-fn"
+      - "--image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/forex-extractor:latest"
+      - "--region=${_REGION}"
+      - "--service-account=${_SA}"
+      - "--set-env-vars=GCS_BUCKET_NAME=${_GCS_BUCKET},BASE_CURRENCY=USD"
       - "--no-allow-unauthenticated"
       - "--memory=256Mi"
       - "--timeout=120s"
-      - "--project=$_PROJECT_ID"
+      - "--project=${_PROJECT_ID}"
 
-  # Deploy Loader: GCS finalize event-triggered Cloud Function Gen 2
+  # Build loader image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "build-loader"
+    args:
+      - "build"
+      - "-t"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/gcs-to-bq-loader:latest"
+      - "./loader"
+
+  # Push loader image
+  - name: "gcr.io/cloud-builders/docker"
+    id: "push-loader"
+    waitFor: ["build-loader"]
+    args:
+      - "push"
+      - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/gcs-to-bq-loader:latest"
+
+  # Deploy loader as Cloud Run service
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "deploy-loader"
-    waitFor:
-      - "deploy-extractor"
+    waitFor: ["push-loader"]
     args:
-      - gcloud
-      - functions
-      - deploy
-      - gcs-to-bq-loader-fn
-      - "--gen2"
-      - "--runtime=python311"
-      - "--region=$_REGION"
-      - "--source=loader/"
-      - "--entry-point=load_to_bq"
-      - "--service-account=$_SA"
-      - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BQ_DATASET=$_BQ_DATASET,BQ_TABLE=$_BQ_TABLE"
-      - "--trigger-event-filters=type=google.cloud.storage.object.v1.finalized"
-      - "--trigger-event-filters=bucket=$_GCS_BUCKET"
-      - "--trigger-location=$_REGION"
-      - "--trigger-service-account=$_SA"
+      - "gcloud"
+      - "run"
+      - "deploy"
+      - "gcs-to-bq-loader-fn"
+      - "--image=${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/gcs-to-bq-loader:latest"
+      - "--region=${_REGION}"
+      - "--service-account=${_SA}"
+      - "--set-env-vars=GCS_BUCKET_NAME=${_GCS_BUCKET},BQ_DATASET=${_BQ_DATASET},BQ_TABLE=${_BQ_TABLE}"
+      - "--no-allow-unauthenticated"
       - "--memory=512Mi"
       - "--timeout=300s"
-      - "--project=$_PROJECT_ID"
+      - "--project=${_PROJECT_ID}"
+
+  # Create or update Eventarc trigger for GCS -> loader
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "create-loader-trigger"
+    waitFor: ["deploy-loader"]
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        if gcloud eventarc triggers describe gcs-to-bq-loader-trigger \
+          --location=${_REGION} \
+          --project=${_PROJECT_ID} >/dev/null 2>&1; then
+          echo "Eventarc trigger already exists."
+        else
+          gcloud eventarc triggers create gcs-to-bq-loader-trigger \
+            --location=${_REGION} \
+            --destination-run-service=gcs-to-bq-loader-fn \
+            --destination-run-region=${_REGION} \
+            --event-filters=type=google.cloud.storage.object.v1.finalized \
+            --event-filters=bucket=${_GCS_BUCKET} \
+            --service-account=${_SA} \
+            --project=${_PROJECT_ID}
+        fi
+
+images:
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/forex-extractor:latest"
+  - "${_REGION}-docker.pkg.dev/${_PROJECT_ID}/${_AR_REPO}/gcs-to-bq-loader:latest"
 
 options:
   logging: CLOUD_LOGGING_ONLY
