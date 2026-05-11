@@ -1,0 +1,53 @@
+# cloudbuild.yaml
+# Deploys both Cloud Run Functions via Cloud Build.
+
+substitutions:
+  _GCS_BUCKET: "harbour-etl-prod-raw-data-bucket"
+  _BQ_DATASET: "etl_dataset"
+  _BQ_TABLE: "exchange_rates"
+  _REGION: "us-asia-southeast3"
+  _SA: "etl-pipeline-runner-sa@project-7abcab2d-24a7-4f5d-80a.iam.gserviceaccount.com"
+
+steps:
+  # ── Deploy Extractor (HTTP-triggered) ────────────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy-extractor"
+    args:
+      - gcloud
+      - run
+      - deploy
+      - weather-extractor-fn
+      - "--source=extractor/"
+      - "--function=extract_data"
+      - "--region=$_REGION"
+      - "--runtime=python311"
+      - "--service-account=$_SA"
+      - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BASE_CURRENCY=USD"
+      - "--no-allow-unauthenticated"
+      - "--memory=256Mi"
+      - "--timeout=120s"
+
+  # ── Deploy Loader (GCS Eventarc-triggered) ───────────────────────────────
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    id: "deploy-loader"
+    waitFor:
+      - "deploy-extractor"
+    args:
+      - gcloud
+      - run
+      - deploy
+      - gcs-to-bq-loader-fn
+      - "--source=loader/"
+      - "--function=load_to_bq"
+      - "--region=$_REGION"
+      - "--runtime=python311"
+      - "--service-account=$_SA"
+      - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BQ_DATASET=$_BQ_DATASET,BQ_TABLE=$_BQ_TABLE"
+      - "--trigger-event-filters=type=google.cloud.storage.object.v1.finalized"
+      - "--trigger-event-filters=bucket=$_GCS_BUCKET"
+      - "--trigger-service-account=$_SA"
+      - "--memory=512Mi"
+      - "--timeout=300s"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
