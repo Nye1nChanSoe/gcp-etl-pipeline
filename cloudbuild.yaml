@@ -1,53 +1,60 @@
 # cloudbuild.yaml
-# Deploys both Cloud Run Functions via Cloud Build.
+# Deploys both Cloud Functions Gen 2 via Cloud Build.
 
 substitutions:
-  _GCS_BUCKET: "harbour-etl-prod-raw-data-bucket"
-  _BQ_DATASET: "harbour_prod_staging" # [project]_[env]_[layer]
-  _BQ_TABLE: "exchangerates_api_raw" # [source]_[entity]_[type]
-  _REGION: "asia-southeast3"
-  _SA: "etl-pipeline-runner-sa@project-7abcab2d-24a7-4f5d-80a.iam.gserviceaccount.com"
+  _GCS_BUCKET: "harbour-etl-prod-raw-data-bucket-sg"
+  _BQ_DATASET: "harbour_prod_staging"
+  _BQ_TABLE: "exchangerates_api_raw"
+  _REGION: "asia-southeast1"
+  _SA: "etl-pipeline-deployer-sa@project-7abcab2d-24a7-4f5d-80a.iam.gserviceaccount.com"
+  _PROJECT_ID: "project-7abcab2d-24a7-4f5d-80a"
 
 steps:
-  # ── Deploy Extractor (HTTP-triggered) ────────────────────────────────────
+  # Deploy Extractor: HTTP-triggered Cloud Function Gen 2
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "deploy-extractor"
     args:
       - gcloud
-      - run
+      - functions
       - deploy
-      - weather-extractor-fn
-      - "--source=extractor/"
-      - "--function=extract_data"
-      - "--region=$_REGION"
+      - forex-extractor-fn
+      - "--gen2"
       - "--runtime=python311"
+      - "--region=$_REGION"
+      - "--source=extractor/"
+      - "--entry-point=extract_data"
+      - "--trigger-http"
       - "--service-account=$_SA"
       - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BASE_CURRENCY=USD"
       - "--no-allow-unauthenticated"
       - "--memory=256Mi"
       - "--timeout=120s"
+      - "--project=$_PROJECT_ID"
 
-  # ── Deploy Loader (GCS Eventarc-triggered) ───────────────────────────────
+  # Deploy Loader: GCS finalize event-triggered Cloud Function Gen 2
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     id: "deploy-loader"
     waitFor:
       - "deploy-extractor"
     args:
       - gcloud
-      - run
+      - functions
       - deploy
       - gcs-to-bq-loader-fn
-      - "--source=loader/"
-      - "--function=load_to_bq"
-      - "--region=$_REGION"
+      - "--gen2"
       - "--runtime=python311"
+      - "--region=$_REGION"
+      - "--source=loader/"
+      - "--entry-point=load_to_bq"
       - "--service-account=$_SA"
       - "--set-env-vars=GCS_BUCKET_NAME=$_GCS_BUCKET,BQ_DATASET=$_BQ_DATASET,BQ_TABLE=$_BQ_TABLE"
       - "--trigger-event-filters=type=google.cloud.storage.object.v1.finalized"
       - "--trigger-event-filters=bucket=$_GCS_BUCKET"
+      - "--trigger-location=$_REGION"
       - "--trigger-service-account=$_SA"
       - "--memory=512Mi"
       - "--timeout=300s"
+      - "--project=$_PROJECT_ID"
 
 options:
   logging: CLOUD_LOGGING_ONLY
