@@ -3,9 +3,9 @@
 
 substitutions:
   _GCS_BUCKET: "harbour-etl-prod-raw-data-bucket"
-  _BQ_DATASET: "etl_dataset"
-  _BQ_TABLE: "exchange_rates"
-  _REGION: "us-asia-southeast3"
+  _BQ_DATASET: "harbour_prod_staging" # [project]_[env]_[layer]
+  _BQ_TABLE: "exchangerates_api_raw" # [source]_[entity]_[type]
+  _REGION: "asia-southeast3"
   _SA: "etl-pipeline-runner-sa@project-7abcab2d-24a7-4f5d-80a.iam.gserviceaccount.com"
 
 steps:

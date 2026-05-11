@@ -1,7 +1,10 @@
 [project]
 name = "extractor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Fetches open exchange rate data and saves it to GCS as a JSON file. Triggered by: HTTP (Cloud Scheduler)"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "functions-framework>=3.10.1",
+    "requests>=2.33.1",
+]

@@ -1,7 +1,7 @@
 [project]
 name = "loader"
 version = "0.1.0"
-description = "Add your description here"
+description = "Reads a JSON file from GCS and loads its records into BigQuery. Triggered by: GCS object finalize (Eventarc)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
